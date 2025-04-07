@@ -1,6 +1,6 @@
-# Voice Recognition System
+# Wake Word Trainer
 
-A machine learning-based voice recognition system that can detect wake words and other voice commands. The system uses a Convolutional Neural Network (CNN) to process audio features and make predictions.
+A toolkit for training wake word detection models using TensorFlow. Processes voice samples, extracts MFCC features, and trains a CNN model for accurate wake word recognition. Includes tools for data preprocessing, model training, and testing.
 
 ## Features
 
@@ -10,6 +10,7 @@ A machine learning-based voice recognition system that can detect wake words and
 - Data augmentation for better training
 - High accuracy (>99% on test samples)
 - Easy to use training and testing scripts
+- Export to both Keras and TensorFlow.js formats
 
 ## Requirements
 
@@ -18,6 +19,7 @@ A machine learning-based voice recognition system that can detect wake words and
 - Librosa
 - NumPy
 - scikit-learn
+- TensorFlow.js (for model export)
 
 Install the requirements:
 
@@ -31,57 +33,66 @@ pip install -r requirements.txt
 .
 ├── train.py           # Training script
 ├── test.py           # Testing script
+├── export_model.py   # Model export script
 ├── requirements.txt  # Python dependencies
 ├── dataset/          # Training data directory
 │   ├── wake/        # Wake word samples
 │   └── not_wake/    # Non-wake word samples
-└── test_samples/     # Test audio samples
+├── test_samples/     # Test audio samples
+└── output/          # Exported models
+    ├── keras_model.keras
+    ├── tfjs_model/
+    └── index.html
 ```
 
-## Setup
+## Complete Workflow
 
-1. Create the required directories:
+1. **Setup**:
 
-```bash
-mkdir -p dataset/wake dataset/not_wake test_samples
-```
+   ```bash
+   mkdir -p dataset/wake dataset/not_wake test_samples
+   ```
 
-2. Add your audio samples:
+2. **Add Training Data**:
+
    - Place wake word samples in `dataset/wake/`
    - Place non-wake word samples in `dataset/not_wake/`
    - All samples should be in WAV format
 
-## Training
+3. **Train the Model**:
 
-To train the model:
+   ```bash
+   python train.py
+   ```
 
-```bash
-python train.py
-```
+   This will:
 
-The training script will:
+   - Load and preprocess audio samples
+   - Extract MFCC features
+   - Train the CNN model
+   - Save the trained model as `wake_word_model.keras`
 
-1. Load and preprocess audio samples
-2. Extract MFCC features
-3. Train the CNN model
-4. Save the trained model as `wake_word_model.keras`
+4. **Test the Model**:
 
-## Testing
+   ```bash
+   python test.py
+   ```
 
-To test the model with new audio samples:
+   This will:
 
-1. Place test audio files in the `test_samples/` directory
-2. Run the test script:
+   - Process test audio files
+   - Make predictions
+   - Show confidence scores
 
-```bash
-python test.py
-```
-
-The script will:
-
-- Process each audio file
-- Make predictions
-- Show confidence scores
+5. **Export the Model**:
+   ```bash
+   python export_model.py
+   ```
+   This will:
+   - Create an `output` directory
+   - Save the Keras model
+   - Convert to TensorFlow.js format
+   - Create a demo HTML page
 
 ## Model Architecture
 
@@ -117,4 +128,5 @@ The model uses a CNN architecture with:
 This project is licensed under the MIT License - see the LICENSE file for details.
 
 Train custom wake word detection models with TensorFlow. Includes audio processing, feature extraction, and CNN model training tools.
+
 # wake-word-trainer

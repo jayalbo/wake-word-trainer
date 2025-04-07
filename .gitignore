@@ -6,6 +6,7 @@ test_samples/
 *.keras
 *.h5
 *.model
+output/
 
 # Python
 __pycache__/
