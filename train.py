@@ -1,62 +1,122 @@
 from keras.models import Sequential
-from keras.layers import Input, Conv2D, BatchNormalization, MaxPooling2D, Flatten, Dense, Dropout
+from keras.layers import Input, Conv2D, BatchNormalization, MaxPooling2D, Flatten, Dense, Dropout, LeakyReLU, GlobalAveragePooling2D
 from keras.optimizers import Adam
-from keras.callbacks import EarlyStopping, ModelCheckpoint
+from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 import numpy as np
 import os
 import librosa
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+import random
+import tensorflow as tf
+from sklearn.metrics import balanced_accuracy_score
+import keras.backend as K
+from tensorflow.keras.utils import to_categorical
 
-def load_audio_data(data_dir, max_frames=100):
-    features = []
-    labels = []
+def balanced_accuracy_metric(y_true, y_pred):
+    y_true_argmax = K.argmax(y_true, axis=-1)
+    y_pred_argmax = K.argmax(y_pred, axis=-1)
+    
+    # Convert to float32 to avoid integer division
+    y_true_argmax = K.cast(y_true_argmax, 'float32')
+    y_pred_argmax = K.cast(y_pred_argmax, 'float32')
+    
+    # Calculate per-class accuracy
+    pos_acc = K.mean(K.cast(K.equal(y_pred_argmax, y_true_argmax) * K.equal(y_true_argmax, 1), 'float32'))
+    neg_acc = K.mean(K.cast(K.equal(y_pred_argmax, y_true_argmax) * K.equal(y_true_argmax, 0), 'float32'))
+    
+    return (pos_acc + neg_acc) / 2
+
+def load_audio_data(data_dir, target_sr=16000, duration=1.0):
+    X = []
+    y = []
     label_encoder = LabelEncoder()
     
-    # Get all subdirectories (each subdirectory is a class)
-    classes = [d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d))]
+    # First, collect all labels
+    labels = []
+    for label in os.listdir(data_dir):
+        if os.path.isdir(os.path.join(data_dir, label)):
+            labels.append(label)
     
-    for class_name in classes:
-        class_dir = os.path.join(data_dir, class_name)
-        print(f"Loading data from {class_name}...")
-        
-        for file_name in os.listdir(class_dir):
-            if file_name.endswith('.wav'):
-                file_path = os.path.join(class_dir, file_name)
-                try:
-                    # Load and preprocess audio
-                    y, sr = librosa.load(file_path, sr=None)
+    label_encoder.fit(labels)
+    print(f"Classes: {label_encoder.classes_}")
+    
+    # Process each class
+    for label in labels:
+        class_dir = os.path.join(data_dir, label)
+        if not os.path.isdir(class_dir):
+            continue
+            
+        for filename in os.listdir(class_dir):
+            if not filename.endswith('.wav'):
+                continue
+                
+            file_path = os.path.join(class_dir, filename)
+            try:
+                # Load audio with consistent duration
+                audio, sr = librosa.load(file_path, sr=target_sr, duration=duration)
+                
+                # Pad or truncate to ensure consistent length
+                target_length = int(target_sr * duration)
+                if len(audio) < target_length:
+                    audio = np.pad(audio, (0, target_length - len(audio)))
+                else:
+                    audio = audio[:target_length]
+                
+                # Extract features with fixed parameters
+                n_mels = 40  # Reduced from 64
+                n_mfcc = 13
+                hop_length = 512
+                
+                # Calculate number of frames
+                n_frames = 1 + (target_length - 2048) // hop_length
+                
+                # Extract MFCC
+                mfcc = librosa.feature.mfcc(y=audio, sr=target_sr, n_mfcc=n_mfcc)
+                
+                # Extract mel spectrogram
+                mel_spec = librosa.feature.melspectrogram(y=audio, sr=target_sr, n_mels=n_mels)
+                mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
+                
+                # Ensure consistent shapes
+                if mfcc.shape[1] < n_frames:
+                    mfcc = np.pad(mfcc, ((0, 0), (0, n_frames - mfcc.shape[1])))
+                else:
+                    mfcc = mfcc[:, :n_frames]
                     
-                    # Extract MFCCs
-                    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
-                    
-                    # Pad or truncate to max_frames
-                    if mfcc.shape[1] < max_frames:
-                        pad_width = ((0, 0), (0, max_frames - mfcc.shape[1]))
-                        mfcc = np.pad(mfcc, pad_width, mode='constant')
-                    else:
-                        mfcc = mfcc[:, :max_frames]
-                    
-                    # Normalize
-                    mfcc = (mfcc - np.mean(mfcc)) / np.std(mfcc)
-                    
-                    features.append(mfcc)
-                    labels.append(class_name)
-                except Exception as e:
-                    print(f"Error processing {file_path}: {str(e)}")
+                if mel_spec_db.shape[1] < n_frames:
+                    mel_spec_db = np.pad(mel_spec_db, ((0, 0), (0, n_frames - mel_spec_db.shape[1])))
+                else:
+                    mel_spec_db = mel_spec_db[:, :n_frames]
+                
+                # Combine features
+                features = np.concatenate([mfcc, mel_spec_db], axis=0)
+                
+                # Normalize features
+                features = (features - np.mean(features)) / (np.std(features) + 1e-6)
+                
+                # Reshape for CNN input (add channel dimension)
+                features = np.expand_dims(features, axis=-1)
+                
+                X.append(features)
+                y.append(label)
+                
+            except Exception as e:
+                print(f"Error processing {file_path}: {str(e)}")
+                continue
     
-    # Convert labels to numbers
-    labels = label_encoder.fit_transform(labels)
+    if not X:
+        raise ValueError("No valid audio files were processed")
     
-    # Convert to numpy arrays
-    X = np.array(features)
-    y = np.array(labels)
+    X = np.array(X)
+    y = label_encoder.transform(y)
+    y = to_categorical(y)
     
-    # Reshape for CNN input (samples, height, width, channels)
-    X = X.reshape(X.shape[0], X.shape[1], X.shape[2], 1)
-    
-    # Convert labels to one-hot encoding
-    y = np.eye(len(classes))[y]
+    print(f"Data shape: {X.shape}")
+    print(f"Number of samples per class:")
+    for i, label in enumerate(label_encoder.classes_):
+        count = np.sum(y[:, i])
+        print(f"{label}: {count}")
     
     return X, y, label_encoder
 
@@ -69,16 +129,37 @@ def augment_data(X, y):
         augmented_X.append(X[i])
         augmented_y.append(y[i])
         
-        # Add some noise
-        noise = np.random.normal(0, 0.01, X[i].shape)
-        augmented_X.append(X[i] + noise)
-        augmented_y.append(y[i])
-        
-        # Time shift
-        shift = np.random.randint(-2, 3)
-        shifted = np.roll(X[i], shift, axis=1)
-        augmented_X.append(shifted)
-        augmented_y.append(y[i])
+        # Only augment minority class (wake)
+        if np.argmax(y[i]) == 1:  # wake class
+            # Add Gaussian noise
+            for _ in range(3):  # Create 3 noisy versions
+                noise_level = random.uniform(0.001, 0.01)
+                noise = np.random.normal(0, noise_level, X[i].shape)
+                augmented_X.append(X[i] + noise)
+                augmented_y.append(y[i])
+            
+            # Time shift
+            for _ in range(2):  # Create 2 shifted versions
+                shift = np.random.randint(-3, 4)
+                shifted = np.roll(X[i], shift, axis=1)
+                augmented_X.append(shifted)
+                augmented_y.append(y[i])
+            
+            # Frequency masking
+            freq_mask = X[i].copy()
+            mask_size = random.randint(2, 4)
+            mask_start = random.randint(0, X[i].shape[0] - mask_size)
+            freq_mask[mask_start:mask_start + mask_size, :, :] = 0
+            augmented_X.append(freq_mask)
+            augmented_y.append(y[i])
+            
+            # Time masking
+            time_mask = X[i].copy()
+            mask_size = random.randint(5, 10)
+            mask_start = random.randint(0, X[i].shape[1] - mask_size)
+            time_mask[:, mask_start:mask_start + mask_size, :] = 0
+            augmented_X.append(time_mask)
+            augmented_y.append(y[i])
     
     return np.array(augmented_X), np.array(augmented_y)
 
@@ -87,94 +168,127 @@ def create_model(input_shape, num_classes):
         # Input layer
         Input(shape=input_shape),
         
-        # First convolutional block
-        Conv2D(32, (3, 3), activation='relu', padding='same'),
+        # First Conv Block - reduced complexity
+        Conv2D(16, (3, 3), padding='same'),
         BatchNormalization(),
+        LeakyReLU(negative_slope=0.1),
         MaxPooling2D(pool_size=(2, 2)),
-        Dropout(0.25),
+        Dropout(0.1),
         
-        # Second convolutional block
-        Conv2D(64, (3, 3), activation='relu', padding='same'),
+        # Second Conv Block
+        Conv2D(32, (3, 3), padding='same'),
         BatchNormalization(),
+        LeakyReLU(negative_slope=0.1),
         MaxPooling2D(pool_size=(2, 2)),
-        Dropout(0.25),
+        Dropout(0.15),
         
-        # Third convolutional block
-        Conv2D(128, (3, 3), activation='relu', padding='same'),
+        # Third Conv Block
+        Conv2D(64, (3, 3), padding='same'),
         BatchNormalization(),
+        LeakyReLU(negative_slope=0.1),
         MaxPooling2D(pool_size=(2, 2)),
-        Dropout(0.25),
+        Dropout(0.2),
         
-        # Flatten and dense layers
+        # Dense layers
         Flatten(),
-        Dense(256, activation='relu'),
+        Dense(64),
         BatchNormalization(),
-        Dropout(0.5),
-        Dense(128, activation='relu'),
-        BatchNormalization(),
-        Dropout(0.5),
+        LeakyReLU(negative_slope=0.1),
+        Dropout(0.25),
         Dense(num_classes, activation='softmax')
     ])
     
-    # Compile with better learning rate and optimizer
-    optimizer = Adam(learning_rate=0.001)
-    model.compile(optimizer=optimizer,
-                 loss='categorical_crossentropy',
-                 metrics=['accuracy'])
-    
     return model
 
-def train_model(X_train, y_train, X_val, y_val, model_path):
-    # Create and train the model
-    model = create_model(input_shape=(X_train.shape[1], X_train.shape[2], 1),
-                        num_classes=len(np.unique(np.argmax(y_train, axis=1))))
+def train_model(data_dir, model_path='wake_word_model.keras'):
+    # Load and preprocess data
+    X, y, label_encoder = load_audio_data(data_dir)
     
-    # Augment training data
-    X_train_aug, y_train_aug = augment_data(X_train, y_train)
-    
-    # Early stopping and model checkpoint
-    early_stopping = EarlyStopping(
-        monitor='val_accuracy',
-        patience=10,
-        restore_best_weights=True
+    # Split the data
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
     )
     
-    checkpoint = ModelCheckpoint(
-        model_path,
-        monitor='val_accuracy',
-        save_best_only=True,
-        mode='max'
+    # Calculate class weights - less aggressive weighting
+    n_samples = len(y_train)
+    class_counts = np.sum(y_train, axis=0)
+    total = np.sum(class_counts)
+    class_weights = {i: (total / (2 * count)) for i, count in enumerate(class_counts)}
+    
+    print("Class weights:", class_weights)
+    
+    # Create and compile model
+    model = create_model(input_shape=X.shape[1:], num_classes=len(label_encoder.classes_))
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=0.0005),  # Reduced learning rate
+        loss='categorical_crossentropy',
+        metrics=['accuracy']
     )
     
-    # Train with augmented data
+    # Define callbacks
+    callbacks = [
+        EarlyStopping(
+            monitor='val_loss',
+            patience=15,  # Increased patience
+            restore_best_weights=True,
+            verbose=1
+        ),
+        ModelCheckpoint(
+            model_path,
+            monitor='val_loss',
+            save_best_only=True,
+            verbose=1
+        ),
+        ReduceLROnPlateau(
+            monitor='val_loss',
+            factor=0.2,  # More gentle reduction
+            patience=7,
+            min_lr=1e-6,
+            verbose=1
+        )
+    ]
+    
+    # Train the model
     history = model.fit(
-        X_train_aug, y_train_aug,
+        X_train,
+        y_train,
+        batch_size=16,  # Reduced batch size
+        epochs=100,  # Increased epochs
         validation_data=(X_val, y_val),
-        batch_size=32,
-        epochs=100,
-        callbacks=[early_stopping, checkpoint]
+        callbacks=callbacks,
+        class_weight=class_weights,
+        verbose=1
     )
     
-    return model, history
+    # Save the final model
+    model.save(model_path)
+    print(f"Model saved to {model_path}")
+    
+    # Print final metrics
+    print("\nFinal training metrics:")
+    for metric in history.history:
+        print(f"{metric}: {history.history[metric][-1]}")
+    
+    return model, history, label_encoder
 
 if __name__ == "__main__":
+    # Set random seeds for reproducibility
+    np.random.seed(42)
+    tf.random.set_seed(42)
+    random.seed(42)
+    
     # Set paths
     data_dir = "dataset"
     model_path = "wake_word_model.keras"
     
-    # Load and preprocess data
-    print("Loading audio data...")
-    X, y, label_encoder = load_audio_data(data_dir)
-    
-    # Split data into train and validation sets
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
-    
-    print(f"Training data shape: {X_train.shape}")
-    print(f"Validation data shape: {X_val.shape}")
-    
     # Train the model
-    print("Training model...")
-    model, history = train_model(X_train, y_train, X_val, y_val, model_path)
+    print("\nTraining model...")
+    model, history, label_encoder = train_model(data_dir, model_path)
     
-    print("Training completed!")
-    print(f"Model saved to {model_path}") 
+    print("\nTraining completed!")
+    print(f"Model saved to {model_path}")
+    
+    # Print final metrics
+    print("\nFinal training metrics:")
+    for metric in history.history:
+        print(f"{metric}: {history.history[metric][-1]}") 

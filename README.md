@@ -1,132 +1,130 @@
-# Wake Word Trainer
+# Wake Word Detection Model
 
-A toolkit for training wake word detection models using TensorFlow. Processes voice samples, extracts MFCC features, and trains a CNN model for accurate wake word recognition. Includes tools for data preprocessing, model training, and testing.
+A deep learning model for detecting wake words in audio samples using MFCC and mel spectrogram features.
+
+## Model Performance
+
+The model achieves the following performance metrics:
+
+- Overall Accuracy: 89.19%
+- Wake Word Detection (Recall): 100.00%
+- Non-Wake Word Detection (Specificity): 86.48%
+- Average Confidence: 85.10%
+
+### Confusion Matrix
+
+- True Wake (correctly identified wake words): 135
+- True Not Wake (correctly identified non-wake words): 467
+- False Wake (incorrectly classified as wake): 73
+- False Not Wake (missed wake words): 0
 
 ## Features
 
-- Real-time audio processing
-- MFCC feature extraction
-- Deep CNN model architecture
-- Data augmentation for better training
-- High accuracy (>99% on test samples)
-- Easy to use training and testing scripts
-- Export to both Keras and TensorFlow.js formats
+- Uses both MFCC (13 coefficients) and mel spectrogram (40 bands) features
+- Consistent audio duration handling (1 second)
+- Feature normalization and standardization
+- Data augmentation for minority class
+- Balanced class weights
+- Early stopping and learning rate reduction
+- Model checkpointing
+
+## Model Architecture
+
+```
+Input Layer
+├── Conv2D (16 filters, 3x3)
+│   ├── BatchNormalization
+│   ├── LeakyReLU
+│   └── MaxPooling2D
+├── Conv2D (32 filters, 3x3)
+│   ├── BatchNormalization
+│   ├── LeakyReLU
+│   └── MaxPooling2D
+├── Conv2D (64 filters, 3x3)
+│   ├── BatchNormalization
+│   ├── LeakyReLU
+│   └── MaxPooling2D
+├── Flatten
+├── Dense (64 units)
+│   ├── BatchNormalization
+│   ├── LeakyReLU
+│   └── Dropout
+└── Output Layer (2 units, softmax)
+```
 
 ## Requirements
 
 - Python 3.8+
 - TensorFlow 2.x
-- Librosa
-- NumPy
+- librosa
+- numpy
 - scikit-learn
-- TensorFlow.js (for model export)
+- seaborn
+- matplotlib
 
-Install the requirements:
+## Installation
+
+1. Clone the repository
+2. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Project Structure
+## Usage
 
-```
-.
-├── train.py           # Training script
-├── test.py           # Testing script
-├── export_model.py   # Model export script
-├── requirements.txt  # Python dependencies
-├── dataset/          # Training data directory
-│   ├── wake/        # Wake word samples
-│   └── not_wake/    # Non-wake word samples
-├── test_samples/     # Test audio samples
-└── output/          # Exported models
-    ├── keras_model.keras
-    ├── tfjs_model/
-    └── index.html
+### Training
+
+To train the model:
+
+```bash
+python train.py
 ```
 
-## Complete Workflow
+The training script will:
 
-1. **Setup**:
+- Load and preprocess audio data
+- Extract features (MFCC and mel spectrogram)
+- Train the model with data augmentation
+- Save the best model to `wake_word_model.keras`
 
-   ```bash
-   mkdir -p dataset/wake dataset/not_wake test_samples
-   ```
+### Testing
 
-2. **Add Training Data**:
+To evaluate the model:
 
-   - Place wake word samples in `dataset/wake/`
-   - Place non-wake word samples in `dataset/not_wake/`
-   - All samples should be in WAV format
+```bash
+python test.py
+```
 
-3. **Train the Model**:
+The test script will:
 
-   ```bash
-   python train.py
-   ```
+- Load the trained model
+- Process test audio files
+- Generate a confusion matrix
+- Display detailed performance metrics
 
-   This will:
+## Dataset Structure
 
-   - Load and preprocess audio samples
-   - Extract MFCC features
-   - Train the CNN model
-   - Save the trained model as `wake_word_model.keras`
+```
+dataset/
+├── wake/
+│   └── [wake word audio files]
+└── not_wake/
+    └── [non-wake word audio files]
+```
 
-4. **Test the Model**:
+## Model Parameters
 
-   ```bash
-   python test.py
-   ```
-
-   This will:
-
-   - Process test audio files
-   - Make predictions
-   - Show confidence scores
-
-5. **Export the Model**:
-   ```bash
-   python export_model.py
-   ```
-   This will:
-   - Create an `output` directory
-   - Save the Keras model
-   - Convert to TensorFlow.js format
-   - Create a demo HTML page
-
-## Model Architecture
-
-The model uses a CNN architecture with:
-
-- Multiple convolutional layers
-- Batch normalization
-- Dropout for regularization
-- Data augmentation
-- Early stopping to prevent overfitting
-
-## Best Practices
-
-1. **Audio Quality**:
-
-   - Use consistent recording conditions
-   - Minimize background noise
-   - Maintain consistent volume levels
-
-2. **Training Data**:
-
-   - Collect at least 50 samples per class
-   - Include various voices and accents
-   - Ensure samples are properly labeled
-
-3. **Testing**:
-   - Test with different voices
-   - Test in various environments
-   - Verify confidence scores
+- Sample rate: 16000 Hz
+- Audio duration: 1.0 seconds
+- MFCC features: 13 coefficients
+- Mel spectrogram: 40 bands
+- Hop length: 512 samples
+- Batch size: 16
+- Learning rate: 0.0005
+- Early stopping patience: 15
+- Class weights: Balanced based on class distribution
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-Train custom wake word detection models with TensorFlow. Includes audio processing, feature extraction, and CNN model training tools.
-
-# wake-word-trainer
+MIT License
